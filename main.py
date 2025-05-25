@@ -9,8 +9,6 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 import cv2
 
-
-
 def play_intro_video(video_path):
     global screen
 
