@@ -178,7 +178,7 @@ wharg_right = load_scaled('wharg_right.png')
 
 
 # === ENVIRONNEMENT ===
-floor_img = load_scaled('floor.png'))
+floor_img = load_scaled('floor.png')
 wall_img = load_scaled('wall.png')
 treasure_img = load_scaled('treasure.png')
 stairs_img = load_scaled('stairs.png')
