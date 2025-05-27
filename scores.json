@@ -616,5 +616,23 @@
         "cause": "Tué par un loup",
         "niveau": 1,
         "castars": 48
+    },
+    {
+        "nom": "",
+        "cause": "Tué par un loup",
+        "niveau": 1,
+        "castars": 0
+    },
+    {
+        "nom": "",
+        "cause": "Tué par un loup",
+        "niveau": 1,
+        "castars": 0
+    },
+    {
+        "nom": "",
+        "cause": "Tué par un serpent",
+        "niveau": 2,
+        "castars": 0
     }
 ]

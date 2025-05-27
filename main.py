@@ -182,8 +182,11 @@ floor_img = load_scaled('floor.png')
 wall_img = load_scaled('wall.png')
 treasure_img = load_scaled('treasure.png')
 stairs_img = load_scaled('stairs.png')
-floorsquelette_img = pygame.image.load("assets/floorsquelette.png").convert_alpha()
-floorsquelette_img = pygame.transform.scale(floorsquelette_img, (TILE_SIZE, TILE_SIZE))
+#floorsquelette_img = pygame.image.load("assets/floorsquelette.png").convert_alpha()
+#floorsquelette_img = pygame.transform.scale(floorsquelette_img, (TILE_SIZE, TILE_SIZE))
+pilier_img = pygame.image.load("assets/pilier.png").convert_alpha()
+pilier_top = pilier_img.subsurface(pygame.Rect(0, 0, TILE_SIZE, TILE_SIZE))
+pilier_bottom = pilier_img.subsurface(pygame.Rect(0, TILE_SIZE, TILE_SIZE, TILE_SIZE))
 
 floorautel_img = pygame.image.load("assets/floorautel.png").convert_alpha()
 floorautel_img = pygame.transform.scale(floorautel_img, (TILE_SIZE, TILE_SIZE))
@@ -247,20 +250,15 @@ hud_bg_img = pygame.transform.scale(hud_bg_img, (MAP_WIDTH * TILE_SIZE, HUD_HEIG
 
 
 # === OBJETS DISPONIBLES ===
-scroll_effects = {
-    "Zan Eth": "reveal_map",
-    "Mok Ra": "confusion",
-    "Tur Gul": "strength",
-    "Fel Dra": "teleport",
-    "Ra Mok": "summon",
-    "Xi Zan": "identify",
-}
+scroll_effect_names = ["Zan Eth", "Mok Ra", "Tur Gul", "Fel Dra", "Ra Mok", "Xi Zan"]
+scroll_effect_types = ["reveal_map", "confusion", "strength", "teleport", "summon", "identify"]
+
 identified_scrolls = set()
 waiting_for_scroll_input = False
 scroll_input_mode = False
 
 # === POTIONS ===
-potion_names = [
+potion_colors = [
     "Potion bleue",
     "Potion rouge",
     "Potion jaune",
@@ -298,8 +296,6 @@ item_pool = [
     {"name": "Armure de mithril", "type": "armor", "def": 10},
     {"name": "Ration Alimentaire", "type": "food", "amount": 200},
 ]
-for name in scroll_effects:
-    item_pool.append({"name": name, "type": "scroll", "effect": scroll_effects[name]})
 
 def get_monster_types_for_level(level):
     types = [
@@ -456,6 +452,12 @@ potion_handler = None  # pour stocker le gestionnaire
 special_floor_decor = []
 fullscreen = False
 windowed_size = (MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE + HUD_HEIGHT)
+pillars_remaining = []
+waiting_for_identify_input = False
+identify_input_mode = False
+identify_handler = None
+
+
 
 def fade(surface, fade_in=True, speed=10, delay=20):
     fade_surface = pygame.Surface(surface.get_size())
@@ -500,10 +502,15 @@ def toggle_fullscreen():
 
 def resize_assets():
     global floor_img, wall_img, treasure_img, stairs_img
-    global floorsquelette_img, floorautel_img
+    #global floorsquelette_img, floorautel_img
     global background_img, hud_bg_img
     global player_up, player_down, player_left, player_right
     global player_health, font_big, font_small, font_mini, hud_font
+    global pilier_img, pilier_top, pilier_bottom
+    pilier_img = pygame.transform.scale(pygame.image.load("assets/pilier.png"), (TILE_SIZE, TILE_SIZE * 2))
+    pilier_top = pilier_img.subsurface(pygame.Rect(0, 0, TILE_SIZE, TILE_SIZE))
+    pilier_bottom = pilier_img.subsurface(pygame.Rect(0, TILE_SIZE, TILE_SIZE, TILE_SIZE))
+
 
     def rescale(img):
         return pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
@@ -512,7 +519,7 @@ def resize_assets():
     wall_img = rescale(pygame.image.load(ASSETS_DIR + 'wall.png'))
     treasure_img = rescale(pygame.image.load(ASSETS_DIR + 'treasure.png'))
     stairs_img = rescale(pygame.image.load(ASSETS_DIR + 'stairs.png'))
-    floorsquelette_img = rescale(pygame.image.load(ASSETS_DIR + 'floorsquelette.png'))
+    #floorsquelette_img = rescale(pygame.image.load(ASSETS_DIR + 'floorsquelette.png'))
     floorautel_img = rescale(pygame.image.load(ASSETS_DIR + 'floorautel.png'))
 
     player_up = rescale(pygame.image.load(ASSETS_DIR + 'player_up.png'))
@@ -611,23 +618,18 @@ def place_items_on_map(game_map):
                 base_name = item["name"].split(" +")[0].split(" -")[0]
                 item["effect"] = potion_effect_map[base_name]
 
-            # Ajoute un modificateur entre -1 et +2
-            modifier = random.randint(-1, 2)
+            # Appliquer un modificateur UNIQUEMENT pour les armes et armures
+            if item["type"] in ["weapon", "armor"]:
+                modifier = random.randint(-1, 2)
+                if "atk" in item:
+                    item["atk"] += modifier
+                elif "def" in item:
+                    item["def"] += modifier
 
-            if item["type"] not in ["scroll", "ammo", "food", "potion"]:
-                modifier = random.randint(-1, 2)  # pour ne pas modifier les parchemins
+                if modifier != 0:
+                    signe = "+" if modifier > 0 else "-"
+                    item["name"] += f" {signe}{abs(modifier)}"
 
-            # Applique à atk ou def selon le type
-            if "atk" in item:
-                item["atk"] += modifier
-            elif "def" in item:
-                item["def"] += modifier
-
-            # Ajoute le modificateur au nom de l'objet
-            # Ajoute le modificateur au nom de l'objet, sauf pour les potions
-            if item["type"] != "potion" and modifier != 0:
-                signe = "+" if modifier > 0 else "-"
-                item["name"] += f" {signe}{abs(modifier)}"
 
             placed = False
             while not placed and attempts < 1000:
@@ -824,9 +826,22 @@ def read_scroll():
                 if item["type"] == "scroll":
                     apply_scroll_effect(item)
                     identified_scrolls.add(item["name"])
-                    player_items.pop(idx)
-                    waiting_for_scroll_input = False
-                    scroll_input_mode = False  # Reset input mode après lecture
+                    # ✅ S'assurer que tous les parchemins identiques ont leur effet inscrit
+                    for scroll in player_items:
+                        if scroll["type"] == "scroll" and scroll["name"] == item["name"]:
+                            scroll["effect"] = item["effect"]
+
+                    # Ne supprime pas immédiatement un parchemin d’identification
+                    if item.get("effect") != "identify":
+                        player_items.pop(idx)
+                        waiting_for_scroll_input = False
+                        scroll_input_mode = False
+                    else:
+                        # L’identification se fera après, suppression différée
+                        player_items[idx]["to_remove_after_identify"] = True
+                        waiting_for_scroll_input = False
+                        scroll_input_mode = False
+
 
     return handle_scroll_input
 
@@ -867,6 +882,48 @@ def drink_potion():
             potion_handler = None
 
     return handle_potion_input
+
+def handle_identify_input():
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+    def handler(event):
+        global identify_input_mode, waiting_for_identify_input, identify_handler
+
+        if event.type == pygame.KEYDOWN:
+            if pygame.K_a <= event.key <= pygame.K_z:
+                selected = chr(event.key).upper()
+                idx = letters.find(selected)
+                if idx != -1 and idx < len(player_items):
+                    item = player_items[idx]
+
+                    if item["type"] == "potion":
+                        base_name = item["name"].split(" +")[0].split(" -")[0]
+                        effect = potion_effect_map.get(base_name, "inconnu")
+                        identified_potions.add(item["name"])
+                        item["effect"] = effect
+                        show_message(f"🧪 La potion '{item['name']}' a pour effet : {effect.replace('_', ' ')}")
+                    elif item["type"] == "scroll":
+                        identified_scrolls.add(item["name"])
+                        effect = item.get("effect", "inconnu").replace('_', ' ')
+                        show_message(f"📜 Le parchemin '{item['name']}' a pour effet : {effect}")
+                    else:
+                        show_message("❌ Cet objet ne peut pas être identifié.")
+                else:
+                    show_message("❌ Lettre invalide.")
+
+                # Nettoyage
+                waiting_for_identify_input = False
+                identify_input_mode = False
+                identify_handler = None
+                show_message("")  # Efface le message de prompt
+
+                for i, it in enumerate(player_items):
+                    if it.get("to_remove_after_identify"):
+                        player_items.pop(i)
+                        break
+
+    return handler
+
 
 
 # === EFFETS DES PARCHEMINS ===
@@ -913,14 +970,12 @@ def apply_scroll_effect(scroll):
         show_message("Deux créatures apparaissent autour de vous !")
 
     elif effect == "identify":
-        unknown_scrolls = [item for item in player_items if
-                           item["type"] == "scroll" and item["name"] not in identified_scrolls]
-        if unknown_scrolls:
-            target = random.choice(unknown_scrolls)
-            identified_scrolls.add(target["name"])
-            show_message(f"🔎 Le parchemin '{target['name']}' est désormais identifié.")
-        else:
-            show_message("🔎 Aucun parchemin inconnu à identifier.")
+        show_message("Ceci est un parchemin d'identification. Quel objet voulez-vous identifier ?")
+        global identify_input_mode, waiting_for_identify_input, identify_handler
+        waiting_for_identify_input = True
+        identify_input_mode = True
+        identify_handler = handle_identify_input()
+
 
 def apply_potion_effect(potion):
     global player_health, player_strength, temporary_strength, strength_turns
@@ -1070,8 +1125,8 @@ def draw_instructions():
         "Appuie sur A pour attendre un tour.",
         "Appuie sur I pour ouvrir l'inventaire.",
         "Appuie sur M pour afficher toute la carte.",
-        "Ramasse les trésors en marchant dessus.",
-        "Descends les escaliers avec W quand tu es dessus.",
+        "Ramassez les trésors en marchant dessus.",
+        "Descendez les escaliers avec W.",
         "But : Explore, ramasse et SURVIS !"
     ]
 
@@ -1256,6 +1311,9 @@ def draw_hud():
     elif last_action_message:
         screen.blit(font_mini.render(last_action_message, True, (255, 255, 0)), (10, hud_y + 25))
 
+    if identify_input_mode:
+        draw_text_with_shadow("🔍 Choisis un objet à identifier (A-Z)", font_mini, 10, hud_y + 45, (255, 255, 255))
+
 
 
 def show_message(text, duration=2000):
@@ -1281,6 +1339,7 @@ def draw_map():
                 if (x, y) == (tx, ty) and visibility_map[y][x] > 0:
                     screen.blit(treasure_img, (x * TILE_SIZE, y * TILE_SIZE))
 
+
     for x, y, img in special_floor_decor:
         if visibility_map[y][x] > 0:
             screen.blit(img, (x * TILE_SIZE, y * TILE_SIZE))
@@ -1289,7 +1348,7 @@ def draw_map():
 
 
     for enemy in enemies:
-        if visibility_map[enemy.y][enemy.x] > 0:
+        if visibility_map[enemy.y][enemy.x] == 255:
             enemy.draw()
 
     if current_direction == "up":
@@ -1519,21 +1578,68 @@ def reset_game():
     global game_map, player_x, player_y, treasures, enemies, visibility_map, stairs_position
     global inventory, player_items, current_weapon, current_armor, arrow_count
     global potion_effect_map, identified_potions
+    global scroll_effects
+
+    pillars_remaining.clear() 
+    
+
     identified_potions.clear()
     random.shuffle(potion_possible_effects)
-    potion_effect_map = dict(zip(potion_names, potion_possible_effects))
     print("[DEBUG] Potions cette partie :", potion_effect_map)
 
+    # === GÉNÈRE LES PARCHEMINS AVEC DES NOMS ALÉATOIRES ===
+    global scroll_effects
+    scroll_effect_names = ["Zan Eth", "Mok Ra", "Tur Gul", "Fel Dra", "Ra Mok", "Xi Zan"]
+    scroll_effect_types = ["reveal_map", "confusion", "strength", "teleport", "summon", "identify"]
+    random.shuffle(scroll_effect_names)
+    scroll_effects = dict(zip(scroll_effect_names, scroll_effect_types))
+
+    # Supprime les anciens parchemins de l'item_pool
+    item_pool[:] = [item for item in item_pool if item.get("type") != "scroll"]
+
+    # Ajoute les nouveaux parchemins avec noms randomisés
+    for name in scroll_effects:
+        item_pool.append({"name": name, "type": "scroll", "effect": scroll_effects[name]})
+
+
+    # === GÉNÈRE LES POTIONS AVEC DES NOMS ALÉATOIRES ===
+    random.shuffle(potion_colors)  # Mélange les noms
+    random.shuffle(potion_possible_effects)  # Mélange les effets
+
+    potion_effect_map = dict(zip(potion_colors, potion_possible_effects))
+    print("[DEBUG] Potions cette partie :", potion_effect_map)
+
+    # Supprime les anciennes potions de l'item_pool
     item_pool[:] = [item for item in item_pool if item.get("type") != "potion"]
-    for name in potion_names:
-        item_pool.append({"name": name, "type": "potion"})  # sans "effect", il sera ajouté dynamiquement
+
+    # Ajoute les potions avec noms mélangés
+    for name in potion_colors:
+        item_pool.append({"name": name, "type": "potion"})
+
 
     game_map, (player_x, player_y), (room_x, room_y, room_w, room_h) = generate_map(MAP_WIDTH, MAP_HEIGHT)
-    special_floor_decor.clear()
-    for _ in range(random.randint(2, 4)):
-        sx = random.randint(room_x + 1, room_x + room_w - 2)
-        sy = random.randint(room_y + 1, room_y + room_h - 2)
-        special_floor_decor.append((sx, sy, floorsquelette_img))
+    #special_floor_decor.clear()
+    #for _ in range(random.randint(2, 4)):
+        #sx = random.randint(room_x + 1, room_x + room_w - 2)
+        #sy = random.randint(room_y + 1, room_y + room_h - 2)
+        #special_floor_decor.append((sx, sy, floorsquelette_img))
+
+    # === Ajout de piliers au niveau 9 ===
+    if current_level == 9:
+        for _ in range(2):
+            placed = False
+            while not placed:
+                px = random.randint(room_x + 2, room_x + room_w - 3)
+                py = random.randint(room_y + 2, room_y + room_h - 3)
+                if game_map[py][px] == '.' and game_map[py - 1][px] == '.':
+                    special_floor_decor.append((px, py - 1, pilier_top))     # Haut du pilier
+                    special_floor_decor.append((px, py, pilier_bottom))      # Bas du pilier
+                    pillars_remaining.append((px, py - 1))  # Pour interaction plus tard
+                    placed = True
+    print(f"[DEBUG] Piliers posés : {pillars_remaining}")
+
+
+
 
     #for _ in range(random.randint(1, 2)):
         #ax = random.randint(room_x + 1, room_x + room_w - 2)
@@ -1572,6 +1678,8 @@ def reset_game():
                 enemies.append(Enemy(monster["name"], x, y, monster["hp"], monster["dmg"], "down", monster["images"]))
                 placed = True
 
+
+
     update_visibility(player_x, player_y)
     place_items_on_map(game_map)
 
@@ -1604,6 +1712,18 @@ try:
                 if scroll_handler:
                     scroll_handler(event)
                 continue  # On saute tout le reste du traitement d'event tant qu'on lit un parchemin
+
+            if identify_input_mode:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_i:
+                        show_inventory = not show_inventory
+                    elif identify_handler:
+                        print("[DEBUG] Handler appelé avec :", event)
+                        identify_handler(event)
+                continue
+
+
+
 
             if potion_input_mode:
                 if potion_handler:
@@ -1816,12 +1936,12 @@ try:
                         break
 
                 else:  # aucun ennemi touché → on essaie de se déplacer
-                    if game_map[ty][tx] == '.' and not any(e.x == tx and e.y == ty for e in enemies):
-                        player_x, player_y = tx, ty
-                    # ⚠️ MODE NOCLIP ACTIVÉ
-                    # Ignorer les murs pour les tests
-                    #if not any(e.x == tx and e.y == ty for e in enemies):
+                    #if game_map[ty][tx] == '.' and not any(e.x == tx and e.y == ty for e in enemies):
                         #player_x, player_y = tx, ty
+                    # ⚠️ MODE NOCLIP ACTIVÉ
+                    #Ignorer les murs pour les tests
+                    if not any(e.x == tx and e.y == ty for e in enemies):
+                        player_x, player_y = tx, ty
 
                         move_counter += 1
                         if move_counter >= 3:
